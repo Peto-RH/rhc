@@ -47,7 +47,7 @@ jobs:
       - name: Install shellcheck
         run: sudo apt install shellcheck
       - name: Check shell bash scripts
-        run: shellcheck ./data/completion/rhc.bash
+        run: shellcheck ./data/completion/rhc.bash .github/workflows/monthly-build/*.sh
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
@@ -58,6 +58,10 @@ jobs:
           python3 -m pyflakes .github/workflows/prepare-release/*.py
       - name: Test release PR scripts
         run: python3 -m unittest discover -s .github/workflows/prepare-release -p 'test_*.py'
+      - name: Check monthly build Python scripts
+        run: python3 -m pyflakes .github/workflows/monthly-build/*.py
+      - name: Test monthly build scripts
+        run: python3 -m unittest discover -s .github/workflows/monthly-build -p 'test_*.py'
   lint-language:
     name: Lint language
     runs-on: ubuntu-latest

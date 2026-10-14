@@ -1,0 +1,107 @@
+name: Monthly RHEL upstream build
+run-name: Monthly RHEL build from ${{ inputs.build_ref }} by @${{ github.actor }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_ref:
+        description: "Upstream branch or tag to build"
+        required: true
+        default: "main"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  upstream:
+    name: "RHEL 10 upstream build"
+    runs-on: ubuntu-latest
+    container:
+      image: registry.fedoraproject.org/fedora:latest
+    defaults:
+      run:
+        shell: bash
+    env:
+      COPR_OWNER: ${{ vars.COPR_OWNER }}
+      COPR_PROJECT: ${{ vars.COPR_PROJECT }}
+
+    steps:
+      - name: "Install build dependencies"
+        run: |
+          dnf --setopt install_weak_deps=False install -y \
+            git packit go make rpm-build go-rpm-macros go-vendor-tools
+
+      - name: "Checkout workflow helpers"
+        id: automation
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.workflow_sha }}
+          persist-credentials: false
+
+      - name: "Validate Copr settings"
+        env:
+          COPR_CONFIG: ${{ secrets.COPR_CONFIG }}
+        run: |
+          : "${COPR_OWNER:?Set the COPR_OWNER repository variable}"
+          : "${COPR_PROJECT:?Set the COPR_PROJECT repository variable}"
+          : "${COPR_CONFIG:?Set the COPR_CONFIG repository secret}"
+
+      - name: "Checkout selected source"
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.build_ref }}
+          path: source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: "Read source version and commit"
+        id: source
+        working-directory: source
+        run: python3 ../.github/workflows/monthly-build/read-version.py
+
+      - name: "Create release archives"
+        working-directory: source
+        env:
+          VERSION: ${{ steps.source.outputs.version }}
+        run: |
+          make archive archive-deps
+          test -s "rhc-$VERSION.tar.gz"
+          test -s "rhc-$VERSION-vendor.tar.bz2"
+
+      - name: "Upload release archives"
+        uses: actions/upload-artifact@v7
+        with:
+          name: monthly-rhel-sources-${{ github.run_attempt }}
+          path: |
+            source/rhc-${{ steps.source.outputs.version }}.tar.gz
+            source/rhc-${{ steps.source.outputs.version }}-vendor.tar.bz2
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: "Build in Copr and wait for results"
+        id: build
+        working-directory: source
+        env:
+          COPR_CONFIG: ${{ secrets.COPR_CONFIG }}
+        run: bash ../.github/workflows/monthly-build/build-copr.sh
+
+      - name: "Upload Packit build log"
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: monthly-rhel-build-log-${{ github.run_attempt }}
+          path: source/packit-build.log
+          if-no-files-found: ignore
+          retention-days: 30
+
+      - name: "Publish monthly build summary"
+        if: ${{ always() && steps.automation.outcome == 'success' }}
+        env:
+          BUILD_REF: ${{ inputs.build_ref }}
+          SOURCE_SHA: ${{ steps.source.outputs.sha || 'unavailable' }}
+          VERSION: ${{ steps.source.outputs.version || 'unavailable' }}
+          BUILD_RESULT: ${{ steps.build.outcome }}
+          COPR_BUILD_URL: ${{ steps.build.outputs.build_url || 'unavailable' }}
+          WORKFLOW_RESULT: ${{ job.status }}
+        run: bash .github/workflows/monthly-build/summary.sh
