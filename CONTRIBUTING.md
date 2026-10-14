@@ -33,6 +33,8 @@ We use [Fedora Weblate](https://translate.fedoraproject.org/engage/rhc/) to mana
 
 ## Packaging
 
+See [Prepare upstream release](doc/PREPARE_RELEASE.md) for creating a version bump PR.
+
 ```shell
 $ sudo dnf install go-vendor-tools
 $ # Create source code and vendor tarballs
